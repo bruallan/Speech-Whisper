@@ -44,6 +44,13 @@ export default function App() {
   const handleGenerate = async () => {
     if (!file) return;
 
+    // Validação de tamanho (25MB é o limite da OpenAI Whisper)
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB em bytes
+    if (file.size > MAX_FILE_SIZE) {
+      setError("O arquivo é muito grande. O limite máximo suportado pela OpenAI é de 25MB.");
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setTranscription(null);
