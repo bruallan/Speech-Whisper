@@ -1,36 +1,20 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import multer from "multer";
-import fs from "fs";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import dotenv from "dotenv";
 
 dotenv.config();
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const dir = "uploads/";
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir);
-    }
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + "-" + Date.now() + ext);
-  }
-});
-
-const upload = multer({ storage: storage });
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Aumenta o limite de JSON para suportar arquivos em Base64
+  app.use(express.json({ limit: '20mb' }));
+
   // API routes FIRST
-  app.post("/api/transcribe", upload.single("file"), async (req, res) => {
-    let filePath = "";
+  app.post("/api/transcribe", async (req, res) => {
     try {
       const currentApiKey = process.env.OPENAI_API_KEY;
       
@@ -41,18 +25,21 @@ async function startServer() {
       // Initialize OpenAI instance
       const openai = new OpenAI({ apiKey: currentApiKey });
 
-      if (!req.file) {
+      const { file, mimeType, fileName } = req.body;
+
+      if (!file) {
         return res.status(400).json({ error: "Nenhum arquivo enviado." });
       }
 
-      filePath = req.file.path;
-      const mimeType = req.file.mimetype;
-      
-      console.log(`Processando com Whisper: ${req.file.originalname} (${mimeType})`);
+      console.log(`Processando localmente com Whisper: ${fileName} (${mimeType})`);
+
+      // Converte Base64 para Buffer
+      const buffer = Buffer.from(file, 'base64');
+      const fileObj = await toFile(buffer, fileName, { type: mimeType });
 
       // Request transcription from OpenAI Whisper
       const transcription = await openai.audio.transcriptions.create({
-        file: fs.createReadStream(filePath),
+        file: fileObj,
         model: "whisper-1",
       });
 
@@ -61,15 +48,6 @@ async function startServer() {
       console.error("Erro detalhado na transcrição:", error);
       const errorMessage = error instanceof Error ? error.message : "Erro desconhecido no servidor";
       res.status(500).json({ error: `Falha ao processar transcrição: ${errorMessage}` });
-    } finally {
-      // Clean up local file
-      if (filePath && fs.existsSync(filePath)) {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (cleanupError) {
-          console.error("Erro ao deletar arquivo temporário:", cleanupError);
-        }
-      }
     }
   });
 

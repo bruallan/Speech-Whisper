@@ -49,18 +49,39 @@ export default function App() {
     setTranscription(null);
     setCopied(false);
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     try {
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        body: formData,
+      // Converter arquivo para Base64
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]); // Remove o prefixo data:audio/mp3;base64,
+        };
+        reader.onerror = (error) => reject(error);
       });
 
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          file: base64Data,
+          mimeType: file.type,
+          fileName: file.name
+        }),
+      });
+
+      // Tratamento para caso a Vercel retorne uma página HTML de erro (ex: 404 ou 500)
+      const contentType = response.headers.get("content-type");
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Erro ao processar a transcrição.');
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Erro ao processar a transcrição.');
+        } else {
+          throw new Error(`Erro no servidor (${response.status}). A rota da API não foi encontrada ou falhou.`);
+        }
       }
 
       const data = await response.json();
